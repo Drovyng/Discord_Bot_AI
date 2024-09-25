@@ -1,0 +1,3 @@
+g4f[all]
+discord.py
+deep_translator
