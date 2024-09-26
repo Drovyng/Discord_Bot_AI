@@ -1,9 +1,7 @@
 import traceback
 
 import g4f, time
-from discord import ChannelType, Emoji, Thread, TextChannel
-from discord.abc import Snowflake
-from discord.utils import get
+from discord import TextChannel, PermissionOverwrite
 from g4f import Model
 from g4f.Provider import *
 
@@ -14,13 +12,8 @@ model = Model(
     base_provider = "Meta",
     best_provider = IterListProvider([Airforce])
 )
-# set_cookies(".google.com", {
-#     "__Secure-1PSID": "g.a000oAhoMcHUvkM4rlSRH5EuRcC94mx8OUett1yRZEhJAkvVEehfK04QSvE2iAcCw-dzTAXIvwACgYKAe0SARASFQHGX2MivW1MvJ1LHpbpVLBWYWGWSRoVAUF8yKr4BNFa9tvMuqKE528BCbOT0076",
-#     "__Secure-1PSIDCC": "AKEyXzU27RMLR4mlUV15SxsfEYY84S_QG4fv4Z3BuQfp-DiZIiFS5_vkCHrqLAJ7GY5Z9CR7qg",
-#     "__Secure-1PSIDTS": "sidts-CjIBQlrA-P6EJP6hV4awZbsyN6LT_-IIYtXhdiZ8D-M3eHLTZ8cZletdCdvw-yy8rx2rUxAA"
-# })
 client = g4f.client.Client()
-import string
+
 filter = ["а", "б", "в", "г", "д", "е", "ё", "ж", "з", "и", "й", "к", "л", "м", "н", "о", "п", "р", "с", "т", "у", "ф", "х", "ц", "ч", "ш", "щ", "ъ", "ы", "ь", "э", "ю", "я"] + list(""" !"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ """)
 async def get_response(messages: list[dict[str, str]], chat_id:int) -> str | None:
     try:
@@ -52,8 +45,9 @@ async def get_response(messages: list[dict[str, str]], chat_id:int) -> str | Non
         return None
 
 from deep_translator import GoogleTranslator
-translated = GoogleTranslator(source='auto', target='en')
+translateEn = GoogleTranslator(source='auto', target='en')
 translateRu = GoogleTranslator(source='auto', target='ru')
+
 
 async def draw_image(promt) -> str:
     try:
@@ -61,16 +55,25 @@ async def draw_image(promt) -> str:
             # model="dall-e-3",
             # model="gemini",
             model='playground-v2.5',
-            prompt=translated.translate(promt)
+            prompt=translateEn.translate(promt)
         )
         return response.data[0].url
     except BaseException:
-        return "[ОШИБКА (ВЕРОЯТНО ПЕРЕГРУЗКА)]"
+        return "[ОШИБКА]"
 
-import discord, config, json, os
+
+import discord, config
 from discord.ext import commands
 from discord.ext.commands.context import Message
 bot = commands.Bot(help_command=None, command_prefix=">", intents=discord.Intents.all())
+
+
+async def send_instruction():
+    channel = bot.get_channel(config.CHANNEL_ID)
+    await channel.purge(limit=100)
+    for text in config.BOT_INSTRUCTIONS:
+        await (await channel.send(content=text)).pin()
+        await channel.purge(limit=1)
 
 
 @bot.event
@@ -112,9 +115,10 @@ async def handle_message(msg: Message):
 async def on_message(msg: Message):
     global last_time_image
 
-    if msg.author.id == bot.user.id or not msg.channel.id in config.THREAD_IDS:
-        return
     thread_id = msg.channel.id
+    
+    if msg.author.id == bot.user.id or not (thread_id in config.THREAD_IDS or thread_id == config.PAINT_THREAD):
+        return
 
     if thread_id == config.PAINT_THREAD and len(msg.content) > 11 and msg.content.lower().startswith("нарисуй: "):
         if last_time_image + 25 < time.perf_counter():
@@ -135,8 +139,9 @@ async def on_message(msg: Message):
             config.save1()
             await msg.delete()
         else:
-            if not msg.content[0] in [">", "?", ".", ",", "%", "$", "-"]:
+            if not msg.content[0] in [">", "?", ".", ",", "%", "$", "-", "!"]:
                 async with msg.channel.typing():
                     await handle_message(msg)
+                    
 
 bot.run(token=config.BOT_TOKEN)
