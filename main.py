@@ -132,12 +132,14 @@ async def on_message(msg: Message):
 
     if thread_id in config.THREAD_IDS:
         if msg.content.lower() == "!очистить":
+            config.AI_HISTORY[thread_id] = []
             config.save1()
             await msg.channel.purge(limit=10000)
-        elif msg.content.lower().startswith("!промт: "):
-            config.AI_PROMT[thread_id] = msg.content[8:]
+            await msg.channel.send(content=f"Текущий промт: ```{config.AI_PROMT[thread_id] if thread_id in config.AI_PROMT else " "}```\nВведите `!Промт: [ваш промт]` для изменения.")
+        elif msg.content.lower().startswith("!промт: ") or msg.content.lower().startswith("!промт "):
+            config.AI_PROMT[thread_id] = msg.content[7:]
             config.save1()
-            await msg.delete()
+            await msg.add_reaction("✅")
         else:
             if not msg.content[0] in [">", "?", ".", ",", "%", "$", "-", "!"]:
                 async with msg.channel.typing():
