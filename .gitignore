@@ -4,3 +4,4 @@ venv/
 tokenFile.py
 history.json
 config.json
+start.bat

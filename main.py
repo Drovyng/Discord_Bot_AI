@@ -1,16 +1,15 @@
 import traceback
+from datetime import timedelta
 
 import g4f, time
-from discord import TextChannel, PermissionOverwrite
+from discord import TextChannel, PermissionOverwrite, Thread, ChannelType, Poll
 from g4f import Model
 from g4f.Provider import *
-
-#from neiron import Free2GPTUpdated
 
 model = Model(
     name          = "llama-3.1-8b",
     base_provider = "Meta",
-    best_provider = IterListProvider([Airforce])
+    best_provider = IterListProvider([Blackbox])#, Airforce])
 )
 client = g4f.client.Client()
 
@@ -52,14 +51,13 @@ translateRu = GoogleTranslator(source='auto', target='ru')
 async def draw_image(promt) -> str:
     try:
         response = await client.images.async_generate(
-            # model="dall-e-3",
-            # model="gemini",
-            model='playground-v2.5',
+            model="flux",
+            #model='playground-v2.5',
             prompt=translateEn.translate(promt)
         )
         return response.data[0].url
-    except BaseException:
-        return "[ОШИБКА]"
+    except BaseException as e:
+        return f"[ОШИБКА ({e})]"
 
 
 import discord, config
@@ -79,44 +77,82 @@ async def send_instruction():
 @bot.event
 async def on_ready():
     await bot.change_presence(status=discord.Status.idle, activity=discord.Game(name="NexusPoins"))
+    # poll = Poll("Когда начинаем новый сезон?",duration=timedelta(0, 0, 0, 0, 0, 8, 0))
+    # poll.add_answer(text="След неделя (14.10.2024 - 20.10.2024)", emoji="👍")
+    # poll.add_answer(text="ЗАВТРА!!!", emoji="✅")
+    # poll.add_answer(text="Следущий месяц", emoji="❌")
+    # await bot.get_channel(1265998299329200181).send(poll=poll)
+
+    # await bot.get_channel(1295434904498212865).set_permissions(
+    #     target=bot.get_guild(1257365949107933227).get_role(1257399413505261599),
+    #     reason=None,
+    #     read_message_history=True,
+    #     send_messages=True,
+    #     view_channel=True
+    # )
+
+    # async for thr in bot.get_channel(1264662345863528589).archived_threads():
+    #     await thr.edit(archived=False, locked=False)
+    #     await thr.edit(archived=True, locked=True, name="1СЗ | " + thr.name)
+
     print("Бот готов!")
 
-last_time_image = time.perf_counter()
+last_time_image = -30
 
-async def handle_message(msg: Message):
+async def handle_message(msg: Message, hide=False):
+    if hide:
+        msg1 = msg
+        msg = await msg.reply("[Аноним]: "+msg.content[1:])
+        await msg1.delete()
     thread_id = msg.channel.id
     if not thread_id in config.AI_HISTORY:
         config.AI_HISTORY[thread_id] = []
     toAdd = {"role": "user", "content": translateRu.translate(msg.content)}
 
-    response = await get_response(config.AI_HISTORY[thread_id]+[toAdd], thread_id)
-    if not response is None:
-        response = response.replace("*", "*\*")
+
+    response = await get_response(config.AI_HISTORY[thread_id][-10:]+[toAdd], thread_id)
 
     if not response is None and response != "":
         config.AI_HISTORY[thread_id].append(toAdd)
         config.AI_HISTORY[thread_id].append({"role": "assistant", "content": response})
+
+
 
         chunks = [response[i:i + 2000] for i in range(0, len(response), 2000)]
 
         previous_msg = msg
 
         for chunk in chunks:
-            previous_msg = await previous_msg.reply(content=chunk, mention_author=False)
+            previous_msg = await previous_msg.reply(content=chunk.replace("*", "*\*"), mention_author=False)
     else:
         await msg.reply(content="[Произошла ошибка]", mention_author=False)
 
-    config.AI_HISTORY[thread_id] = config.AI_HISTORY[thread_id][-10:]
+    config.AI_HISTORY[thread_id] = config.AI_HISTORY[thread_id][-20:]
 
     config.save1()
 
+
+async def aexec(code):
+    # Make an async function with the code and `exec` it
+    exec(
+        f'async def __ex(): ' +
+        ''.join(f'\n {l}' for l in code.split('\n'))
+    )
+    # Get `__ex` from local variables, call it and return the result
+    return await locals()['__ex']()
 
 @bot.event
 async def on_message(msg: Message):
     global last_time_image
 
     thread_id = msg.channel.id
-    
+
+    if msg.author.id in config.AUTHOR_IDS and msg.content.lower().startswith("питон-команда: "):
+        await aexec(msg.content[15:])
+        await msg.add_reaction("✅")
+        return
+
+
     if msg.author.id == bot.user.id or not (thread_id in config.THREAD_IDS or thread_id == config.PAINT_THREAD):
         return
 
@@ -128,7 +164,10 @@ async def on_message(msg: Message):
             await msg.add_reaction("⌛")
             await msg.add_reaction("❌")
             await msg.add_reaction("⏳")
+
         return
+
+
 
     if thread_id in config.THREAD_IDS:
         if msg.content.lower() == "!очистить":
@@ -140,10 +179,25 @@ async def on_message(msg: Message):
             config.AI_PROMT[thread_id] = msg.content[7:]
             config.save1()
             await msg.add_reaction("✅")
+        elif msg.content.lower().startswith("!удалить ") and len(msg.content) in [10, 11] and msg.content[9:] in [str(i) for i in range(1, 11)]:
+            config.AI_HISTORY[thread_id] = config.AI_HISTORY[thread_id][:-int(msg.content[9:])]
+            config.save()
+            await msg.add_reaction("✅")
+        elif msg.content.lower().startswith("!архивировать ") and len(msg.content) > 16 and msg.author.id in config.AUTHOR_IDS:
+            thread: Thread = msg.channel
+            await thread.edit(archived=True, locked=True, name="[АРХИВ] " + msg.content[14:])
+            index = config.THREAD_IDS.index(thread_id)
+            new_thread = await bot.get_channel(config.CHANNEL_ID).create_thread(
+                 name=f"Чат {index+1}",
+                 auto_archive_duration=10080,
+                 slowmode_delay=5,
+                 type=ChannelType.public_thread)
+            config.THREAD_IDS[index] = new_thread.id
+            config.save()
         else:
             if not msg.content[0] in [">", "?", ".", ",", "%", "$", "-", "!"]:
                 async with msg.channel.typing():
-                    await handle_message(msg)
+                    await handle_message(msg, msg.content[0] == "&")
                     
 
 bot.run(token=config.BOT_TOKEN)
